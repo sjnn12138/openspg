@@ -1,3 +1,4 @@
+version: "3.7"
 services:
   server:
     restart: always
@@ -8,9 +9,21 @@ services:
     depends_on:
       - mysql
       - neo4j
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      TZ: Asia/Shanghai
+      LANG: C.UTF-8
     command: [
+      "java",
+      "-Dfile.encoding=UTF-8",
+      "-Xms2048m",
+      "-Xmx8192m",
+      "-jar",
+      "arks-sofaboot-0.0.1-SNAPSHOT-executable.jar",
       '--server.repository.impl.jdbc.host=mysql',
       '--server.repository.impl.jdbc.password=openspg',
+      '--builder.model.execute.num=5',
       '--cloudext.graphstore.url=neo4j://release-openspg-neo4j:7687?user=neo4j&password=neo4j@openspg&database=neo4j',
       '--cloudext.searchengine.url=neo4j://release-openspg-neo4j:7687?user=neo4j&password=neo4j@openspg&database=neo4j'
     ]
@@ -19,6 +32,8 @@ services:
     restart: always
     image: spg-registry.cn-hangzhou.cr.aliyuncs.com/spg/openspg-mysql:latest
     container_name: release-openspg-mysql
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
     environment:
       TZ: Asia/Shanghai
       LANG: C.UTF-8
@@ -38,6 +53,7 @@ services:
       - "7474:7474"
       - "7687:7687"
     environment:
+      - TZ=Asia/Shanghai
       - NEO4J_AUTH=neo4j/neo4j@openspg
       - NEO4J_PLUGINS=["apoc"]
       - NEO4J_server_memory_heap_initial__size=1G
@@ -48,7 +64,5 @@ services:
       - NEO4J_dbms_security_procedures_unrestricted=*
       - NEO4J_dbms_security_procedures_allowlist=*
     volumes:
-      - /etc/localtime:/etc/localtime
-      - $HOME/dozerdb/data:/data
+      - /etc/localtime:/etc/localtime:ro
       - $HOME/dozerdb/logs:/logs
-      - $HOME/dozerdb/import:/var/lib/neo4j/import

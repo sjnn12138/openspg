@@ -30,7 +30,6 @@ import com.antgroup.openspg.cloudext.interfaces.graphstore.model.lpg.record.Edge
 import com.antgroup.openspg.cloudext.interfaces.graphstore.model.lpg.record.LPGPropertyRecord;
 import com.antgroup.openspg.cloudext.interfaces.graphstore.model.lpg.record.VertexRecord;
 import com.antgroup.openspg.cloudext.interfaces.graphstore.model.lpg.schema.EdgeTypeName;
-import com.antgroup.openspg.reasoner.runner.local.impl.LocalRunnerThreadPool;
 import com.antgroup.openspg.server.common.model.project.Project;
 import com.google.common.collect.Lists;
 import java.util.ArrayList;
@@ -39,16 +38,33 @@ import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionHandler;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 
 @Slf4j
 public class Neo4jSinkWriter extends BaseSinkWriter<Neo4jSinkNodeConfig> {
+
+  private static final int NUM_THREADS = 10;
 
   private ExecuteNode node;
   private Neo4jStoreClient client;
   private Project project;
   private static final String DOT = ".";
+  ExecutorService executor;
+
+  RejectedExecutionHandler handler =
+      (r, executor) -> {
+        try {
+          executor.getQueue().put(r);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+      };
 
   public Neo4jSinkWriter(String id, String name, Neo4jSinkNodeConfig config) {
     super(id, name, config);
@@ -63,6 +79,14 @@ public class Neo4jSinkWriter extends BaseSinkWriter<Neo4jSinkNodeConfig> {
     }
     client = new Neo4jStoreClient(context.getGraphStoreUrl());
     project = JSON.parseObject(context.getProject(), Project.class);
+    executor =
+        new ThreadPoolExecutor(
+            NUM_THREADS,
+            NUM_THREADS,
+            2 * 60L,
+            TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>(100),
+            handler);
   }
 
   @Override
@@ -90,24 +114,20 @@ public class Neo4jSinkWriter extends BaseSinkWriter<Neo4jSinkNodeConfig> {
   public void writeToNeo4j(SubGraphRecord subGraphRecord) {
     subGraphRecord.getResultNodes().forEach(node -> convertProperties(node.getProperties()));
     subGraphRecord.getResultEdges().forEach(edge -> convertProperties(edge.getProperties()));
-
-    ExecutorService nodeExecutor = LocalRunnerThreadPool.getThreadPoolExecutor(null);
     try {
       node.addTraceLog("Start Writer Nodes processor...");
       List<Future<Void>> nodeFutures =
-          submitTasks(nodeExecutor, subGraphRecord.getResultNodes(), this::writeNode);
+          submitTasks(executor, subGraphRecord.getResultNodes(), this::writeNode);
       awaitAllTasks(nodeFutures);
       node.addTraceLog("Writer Nodes succeed");
     } catch (InterruptedException | ExecutionException e) {
       Thread.currentThread().interrupt();
       throw new RuntimeException("Error during node upsert", e);
     }
-
-    ExecutorService edgeExecutor = LocalRunnerThreadPool.getThreadPoolExecutor(null);
     try {
       node.addTraceLog("Start Writer Edges processor...");
       List<Future<Void>> edgeFutures =
-          submitTasks(edgeExecutor, subGraphRecord.getResultEdges(), this::writeEdge);
+          submitTasks(executor, subGraphRecord.getResultEdges(), this::writeEdge);
       awaitAllTasks(edgeFutures);
       node.addTraceLog("Writer Edges succeed");
     } catch (InterruptedException | ExecutionException e) {
@@ -156,7 +176,10 @@ public class Neo4jSinkWriter extends BaseSinkWriter<Neo4jSinkNodeConfig> {
     try {
       Long statr = System.currentTimeMillis();
       RecordAlterOperationEnum operation = context.getOperation();
-      if (node.getId() == null || node.getName() == null) {
+      if (StringUtils.isBlank(node.getId())
+          || StringUtils.isBlank(node.getName())
+          || StringUtils.isBlank(node.getLabel())) {
+        log.info(String.format("write Node ignore node:%s", JSON.toJSONString(node)));
         return;
       }
       String label = labelPrefix(node.getLabel());
@@ -194,7 +217,10 @@ public class Neo4jSinkWriter extends BaseSinkWriter<Neo4jSinkNodeConfig> {
     try {
       Long statr = System.currentTimeMillis();
       RecordAlterOperationEnum operation = context.getOperation();
-      if (edge.getFrom() == null || edge.getTo() == null) {
+      if (StringUtils.isBlank(edge.getFrom())
+          || StringUtils.isBlank(edge.getTo())
+          || StringUtils.isBlank(edge.getLabel())) {
+        log.info(String.format("write Edge ignore edge:%s", JSON.toJSONString(edge)));
         return;
       }
       List<EdgeRecord> edgeRecords = Lists.newArrayList();

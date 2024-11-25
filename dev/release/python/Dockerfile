@@ -19,6 +19,7 @@ ENV LANG C.UTF-8
 ARG TARGETPLATFORM
 ARG APT_INSTALL="apt-get install --no-install-recommends -y"
 
+
 RUN apt-get clean && apt-get update && \
     $APT_INSTALL ca-certificates && \
     $APT_INSTALL ca-certificates-java && \
@@ -43,13 +44,10 @@ RUN if [ "${TARGETPLATFORM}" = "linux/amd64" ]; then \
 RUN python3 -m venv /openspg_venv && \
     . /openspg_venv/bin/activate && \
     export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-$(dpkg --print-architecture) && \
-    pip3 install openspg-kag==0.0.3.20241022.2 -i https://artifacts.antgroup-inc.cn/artifact/repositories/simple-dev/ && \
+    pip3 install openspg-kag==0.5.1b3 && \
     pip3 install pemja==0.4.0 && \
     pip3 install -U "http://alps-common.oss-cn-hangzhou-zmf.aliyuncs.com/nscommon/shiji/nscommon-0.0.1.tar.gz" &&\
     echo "if (tty -s); then \n   . /openspg_venv/bin/activate \nfi" >> ~/.bashrc
 
-ADD openspg/dev/release/python/lib/builder*.jar /openspg_venv/lib/python3.8/site-packages/knext/builder/lib
-ADD openspg/dev/release/python/lib/reasoner*.jar /openspg_venv/lib/python3.8/site-packages/knext/reasoner/lib
 
 COPY openspg/ /openspg
-#RUN git clone --depth=1 https://github.com/OpenSPG/openspg.git
